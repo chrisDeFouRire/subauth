@@ -7,7 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
+	"regexp"
 
 	"github.com/golang-jwt/jwt/v5"
 )
@@ -28,12 +28,14 @@ type Claims struct {
 	Email             string `json:"email"`
 }
 
+var re = regexp.MustCompile("(?i:bearer) (.+)$")
+
 func parseBearerToken(authorization string) (string, error) {
-	if !strings.HasPrefix(authorization, "Bearer ") {
+	matches := re.FindStringSubmatch(authorization)
+	if len(matches) != 2 {
 		return "", ErrInvalidAuthorization
 	}
-	token := strings.TrimPrefix(authorization, "Bearer ")
-	return token, nil
+	return matches[1], nil
 }
 
 func parseJWTToken(tokenString string) (*Claims, error) {
