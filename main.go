@@ -1,7 +1,9 @@
 package main
 
 import (
+	"crypto/rsa"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -12,22 +14,37 @@ import (
 )
 
 var (
-	ErrInvalidAuthorization = errors.New("Invalid authorization header")
-	publicKey               string
+	ErrInvalidAuthorization = errors.New("invalid authorization Bearer token header")
+	ErrInvalidToken         = errors.New("invalid bearer JWT token")
+	publicKey               *rsa.PublicKey
 )
+
+type Claims struct {
+	jwt.RegisteredClaims
+	EmailVerified     bool   `json:"email_verified"`
+	Name              string `json:"name"`
+	PreferredUsername string `json:"preferred_username"`
+	GivenName         string `json:"given_name"`
+	FamilyName        string `json:"family_name"`
+	Email             string `json:"email"`
+}
 
 func parseBearerToken(authorization string) (string, error) {
 	if !strings.HasPrefix(authorization, "Bearer ") {
-		return "", errors.New("Invalid authorization header")
+		return "", ErrInvalidAuthorization
 	}
 	token := strings.TrimPrefix(authorization, "Bearer ")
 	return token, nil
 }
 
-func parseJWTToken(tokenString string, publicKey string) (*jwt.Token, error) {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		// Return the key used for signing the token
-		return []byte(publicKey), nil
+func parseJWTToken(tokenString string) (*Claims, error) {
+	c := Claims{}
+
+	token, err := jwt.ParseWithClaims(tokenString, &c, func(token *jwt.Token) (interface{}, error) {
+		if token.Header["alg"] != "RS256" {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return publicKey, nil
 	})
 
 	if err != nil {
@@ -35,17 +52,23 @@ func parseJWTToken(tokenString string, publicKey string) (*jwt.Token, error) {
 	}
 
 	if !token.Valid {
-		return nil, errors.New("Invalid token")
+		return nil, ErrInvalidToken
 	}
 
-	return token, nil
+	return &c, nil
 }
 
 func init() {
-	publicKey = os.Getenv("PUBLIC_KEY")
-	if publicKey == "" {
+	spublicKey := os.Getenv("PUBLIC_KEY")
+	if spublicKey == "" {
 		panic("PUBLIC_KEY environment variable not set")
 	}
+	var err error
+	publicKey, err = jwt.ParseRSAPublicKeyFromPEM([]byte("-----BEGIN CERTIFICATE-----\n" + spublicKey + "\n-----END CERTIFICATE-----"))
+	if err != nil {
+		panic(err)
+	}
+	log.Println("Public key loaded")
 }
 
 func main() {
@@ -60,7 +83,7 @@ func main() {
 		}
 
 		// Parse the JWT token
-		claims, err := parseJWTToken(token, publicKey)
+		claims, err := parseJWTToken(token)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusUnauthorized)
 			return
@@ -68,7 +91,12 @@ func main() {
 
 		log.Println(claims)
 
+		w.WriteHeader(http.StatusNoContent)
 	})
 
-	http.ListenAndServe(":8080", r)
+	err := http.ListenAndServe(":8080", r)
+	if err != nil {
+		panic(err)
+	}
+	log.Println("Server started")
 }
