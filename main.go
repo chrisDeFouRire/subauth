@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/golang-jwt/jwt/v5"
 )
 
@@ -72,9 +71,9 @@ func init() {
 }
 
 func main() {
-	r := chi.NewRouter()
 
-	r.Get("/", func(w http.ResponseWriter, r *http.Request) {
+	// no matter what the Method or URL is, we always check the Authorization header
+	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		authorization := r.Header.Get("Authorization")
 		token, err := parseBearerToken(authorization)
 		if err != nil {
@@ -94,9 +93,9 @@ func main() {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	err := http.ListenAndServe(":8080", r)
+	log.Println("Server started")
+	err := http.ListenAndServe(":8080", nil)
 	if err != nil {
 		panic(err)
 	}
-	log.Println("Server started")
 }
